@@ -45,10 +45,9 @@ class TransactionService
             $wallet->balance_reais += $amount;
             $wallet->save();
 
-            $formattedAmount = 'R$ ' . number_format($amount, 2, ',', '.');
-
             try {
-                Mail::to($this->user->email)->send(new ConfirmationTransactionDepositMail($this->user, $formattedAmount));
+                Mail::to($this->user->email)->send(new ConfirmationTransactionDepositMail($this->user, 'R$ ' . number_format($amount, 2, ',', '.')));
+                Log::info("E-mail de confirmação de compra enviado para {$this->user->email}.");
             } catch (\Exception $e) {
                 Log::error('Erro ao enviar o email de confirmação de depósito: ' . $e->getMessage());
             }

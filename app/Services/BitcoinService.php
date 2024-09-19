@@ -12,6 +12,7 @@ use App\Mail\BtcSellMail;
 use App\Models\BtcQuote;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class BitcoinService
 {
@@ -45,13 +46,17 @@ class BitcoinService
             'wallet_id' => $wallet->id,
         ]);
 
+        Log::info("Transação de compra de Bitcoin registrada para o usuário {$this->user->id}. Valor em reais: R$ {$amount}, Valor em BTC: {$btcAmount}, Preço do BTC: {$bitcoinPrice}.");
+
         $wallet->balance_reais -= $amount;
         $wallet->balance_btc += $btcAmount;
         $wallet->save();
 
-        $formattedAmount = 'R$ ' . number_format($amount, 2, ',', '.');
+        Log::info("Compra de Bitcoin concluída para o usuário {$this->user->id}. Novo saldo: R$ {$wallet->balance_reais}, BTC: {$wallet->balance_btc}.");
 
-        Mail::to($this->user->email)->send(new BtcPurchaseMail($this->user, $formattedAmount, $btcAmount));
+        Mail::to($this->user->email)->send(new BtcPurchaseMail($this->user, 'R$ ' . number_format($amount, 2, ',', '.'), $btcAmount));
+
+        Log::info("E-mail de confirmação de compra enviado para {$this->user->email}.");
 
         return [
             'status' => 'success',
@@ -64,6 +69,8 @@ class BitcoinService
     {
         $wallet = Wallet::where('user_id', $this->user->id)->firstOrFail();
 
+        Log::info("Iniciando venda de Bitcoin para o usuário {$this->user->id}. Quantidade de BTC a vender: {$btcAmount}.");
+
         if ($wallet->balance_btc < $btcAmount) {
             throw new \Exception('Saldo insuficiente de BTC!');
         }
@@ -71,10 +78,10 @@ class BitcoinService
         $bitcoinPrice = $this->getBitcoinPrice('buy');
 
         $btcPurchases = Transaction::where('user_id', $this->user->id)
-        ->where('type', 'purchase')
-        ->where('btc_amount', '>', 0)
-        ->orderBy('created_at', 'asc')
-        ->get();
+            ->where('type', 'purchase')
+            ->where('btc_amount', '>', 0)
+            ->orderBy('created_at', 'asc')
+            ->get();
 
         $btcAmountToSell = $btcAmount;
         $totalAmountSoldInReais = 0;
@@ -84,15 +91,15 @@ class BitcoinService
             if ($btcAmountToSell <= 0) {
                 break;
             }
-    
+
             if ($purchase->btc_amount > 0) {
                 if ($purchase->btc_amount >= $btcAmountToSell) {
                     $amountSoldInReais = $btcAmountToSell * $bitcoinPrice;
                     $totalAmountSoldInReais += $amountSoldInReais;
-    
+
                     $purchase->btc_amount -= $btcAmountToSell;
                     $purchase->save();
-    
+
                     $transaction = Transaction::create([
                         'amount' => $amountSoldInReais,
                         'btc_amount' => $btcAmountToSell,
@@ -102,17 +109,17 @@ class BitcoinService
                         'user_id' => $this->user->id,
                         'wallet_id' => $wallet->id,
                     ]);
-    
+
                     $transactions[] = $transaction;
                     $btcAmountToSell = 0;
                 } else {
                     $amountSoldInReais = $purchase->btc_amount * $bitcoinPrice;
                     $totalAmountSoldInReais += $amountSoldInReais;
-    
+
                     $btcAmountSold = $purchase->btc_amount;
                     $purchase->btc_amount = 0;
                     $purchase->save();
-    
+
                     $transaction = Transaction::create([
                         'amount' => $amountSoldInReais,
                         'btc_amount' => $btcAmountSold,
@@ -122,7 +129,7 @@ class BitcoinService
                         'user_id' => $this->user->id,
                         'wallet_id' => $wallet->id,
                     ]);
-    
+
                     $transactions[] = $transaction;
                     $btcAmountToSell -= $btcAmountSold;
                 }
@@ -133,9 +140,11 @@ class BitcoinService
         $wallet->balance_btc -= $btcAmount;
         $wallet->save();
 
-        $formattedAmount = 'R$ ' . number_format($totalAmountSoldInReais, 2, ',', '.');
+        Log::info("Venda de Bitcoin concluída para o usuário {$this->user->id}. Total vendido em reais: R$ {$totalAmountSoldInReais}, Preço do BTC: {$bitcoinPrice}.");
 
-        Mail::to($this->user->email)->send(new BtcSellMail($this->user, $formattedAmount, $btcAmount));
+        Mail::to($this->user->email)->send(new BtcSellMail($this->user, 'R$ ' . number_format($totalAmountSoldInReais, 2, ',', '.'), $btcAmount));
+
+        Log::info("E-mail de confirmação de venda enviado para {$this->user->email}.");
 
         return [
             'transactions' => $transactions,
@@ -150,12 +159,16 @@ class BitcoinService
             $response = Http::get($this->apiUrl);
             if ($response->successful()) {
                 $data = $response->json();
+                $currentDateTime = Carbon::now()->toDateTimeString();
+
+                Log::info("Preço de compra e venda Bitcoin obtido com sucesso. Compra: {$data['ticker']['buy']}, Venda: {$data['ticker']['sell']}, Data: {$currentDateTime}.");
+
                 return [
                     'buy' => $data['ticker']['buy'],
                     'sell' => $data['ticker']['sell'],
-                    'last' => $data['ticker']['last'],
                 ];
             }
+            Log::error('Erro ao buscar a cotação do Bitcoin.');
             throw new \Exception('Erro ao buscar a cotação do Bitcoin.');
         });
     }
@@ -167,8 +180,10 @@ class BitcoinService
             if ($response->successful()) {
                 return $response->json()['ticker'][$priceType];
             }
+            Log::error('Erro ao obter a cotação do Bitcoin.');
             throw new \Exception('Erro ao obter a cotação do Bitcoin.');
         } catch (\Exception $e) {
+            Log::error('Erro ao obter a cotação do Bitcoin: ' . $e->getMessage());
             throw new \Exception('Erro ao obter a cotação do Bitcoin: ' . $e->getMessage());
         }
     }
