@@ -112,7 +112,7 @@ Composer é o gerenciador de dependências para PHP. Instale-o com os seguintes 
 1. Clone este repositório:
 
     ```bash
-    git clone https://github.com/gabriel-americo/
+    git clone https://github.com/gabriel-americo/bitcoin-investment.git
     ```
 
     ```bash
